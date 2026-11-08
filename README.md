@@ -35,6 +35,10 @@ $PY -m footy_prediction_model scan --data data --leagues E0 SP1 I1 D1 F1 G1 CY1 
 #    -> scan_<date>.html (per-match page), scan_<date>.md, scan_<date>_legs.csv, data/watchlist.csv
 $PY -m footy_prediction_model watch --data data      # grade the watch-list experiment
 
+# 4. next morning: fetch results, then review what happened vs the scan
+$PY -m footy_prediction_model fetch --dest data --no-history
+$PY -m footy_prediction_model review --data data --date 2026-11-08   # -> review_<date>.md
+
 # 3b. or score a slip you already have
 $PY -m footy_prediction_model predict --data data --leagues E0 SP1 I1 D1 F1 G1 CY1 \
     --slip examples/slip_2026-11-07.csv --out slip_report.md
@@ -62,6 +66,18 @@ Light-theme page, grouped by league:
   form per team (position, last 5, xG last 10, Europe midweek, conceding 2+).
 
 Bets come from the sharp market, not from model gaps: see "Model gaps work backwards".
+
+## Review (`review_<date>.md`)
+
+Settles every market from the scan against the results:
+1. Results, with how likely each was (market and model).
+2. Shortlist hits vs expected.
+3. Watch-list record.
+4. Model vs market log-loss for the day.
+5. A **live record** across all reviewed days (`data/review_log.csv`).
+
+The tuning verdict only fires after 300 live games. One matchday (~30 games) carries
+about ±0.1 of log-loss noise, far more than any real model change.
 
 ## Scan markdown (`scan_<date>.md`)
 
@@ -202,6 +218,7 @@ footy_prediction_model/
   scan.py      matchday scan: fixtures + fair prices -> legs -> disjoint parlays
   report.py    per-match HTML page (light theme, by league)
   watch.py     watch-list experiment: log, settle, grade
+  review.py    post-matchday review + live record
   predict.py   slip scoring + report
   cli.py       commands
 tests/         leakage, score matrix, xG target, stretch, xG ingestion, parlay builder, watch list

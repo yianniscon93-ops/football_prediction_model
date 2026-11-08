@@ -60,3 +60,24 @@ def test_watch_settle_and_log(tmp_path):
     g, s = grade(path, m)
     assert len(g) == 1 and g["fair_p"].iloc[0] == 0.6        # first (pre-match) price kept
     assert s["n"] == 1 and s["won"] == 1.0 and abs(s["roi_min"] - 0.59) < 1e-9
+
+
+def test_review_settles_scan_against_results(tmp_path):
+    from footy_prediction_model.review import review
+    rows = []
+    for mid, (fx, p1, px, p2) in enumerate([("A v B", .60, .25, .15), ("C v D", .30, .30, .40)]):
+        for key, fp, mp in (("1", p1, p1 - .05), ("X", px, px), ("2", p2, p2 + .05), ("O2.5", .55, .5),
+                            ("1X", p1 + px, p1 + px - .05)):
+            rows.append(dict(match_id=mid, kickoff="2026-11-08 16:00", league="E0", fixture=fx, leg=key,
+                             key=key, fair_p=fp, fair_odds=1 / fp, min_odds=round(1 / fp / 1.05, 2),
+                             model_p=mp, reason=""))
+    legs = pd.DataFrame(rows)
+    m = pd.DataFrame({"league": "E0", "date": pd.to_datetime(["2026-11-08"] * 2), "home": ["A", "C"],
+                      "away": ["B", "D"], "hg": [2.0, 0.0], "ag": [0.0, 0.0]})
+    rep = review(pd.Timestamp("2026-11-08"), legs, m, str(tmp_path))
+    assert "2 of 2 games have results" in rep
+    assert "Tuning verdict: not yet" in rep
+    log = pd.read_csv(tmp_path / "review_log.csv")
+    assert len(log) == 2 and set(log["hg"]) == {2.0, 0.0}
+    review(pd.Timestamp("2026-11-08"), legs, m, str(tmp_path))      # re-run same day: no duplicates
+    assert len(pd.read_csv(tmp_path / "review_log.csv")) == 2

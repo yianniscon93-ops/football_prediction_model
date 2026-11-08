@@ -48,7 +48,7 @@ def main(argv=None):
     fp.add_argument("--dest", default="data")
     fp.add_argument("--leagues", nargs="+", default=DEFAULT_LEAGUES)
     fp.add_argument("--no-history", action="store_true")
-    for name in ("backtest", "tune", "coefs", "predict", "teams", "edge-test", "xg", "scan", "watch"):
+    for name in ("backtest", "tune", "coefs", "predict", "teams", "edge-test", "xg", "scan", "watch", "review"):
         sp = sub.add_parser(name)
         _common(sp)
         if name == "xg":
@@ -82,6 +82,9 @@ def main(argv=None):
             sp.add_argument("--min-fair-odds", type=float, default=1.19,
                             help="shortest leg allowed in parlays (fair odds)")
             sp.add_argument("--max-fair-odds", type=float, default=1.43)
+        if name == "review":
+            sp.add_argument("--date", required=True, help="YYYY-MM-DD of the scan to review")
+            sp.add_argument("--legs", default=None, help="default scan_<date>_legs.csv")
         if name == "teams":
             sp.add_argument("--league", default=None)
     a = ap.parse_args(argv)
@@ -94,13 +97,19 @@ def main(argv=None):
         al = pd.read_csv(a.aliases)
         _data.EXTRA_ALIASES.update(dict(zip(al["source"].astype(str), al["target"].astype(str))))
 
+    if a.cmd == "review":   # review the same leagues the scan covered
+        lp = a.legs or f"scan_{pd.Timestamp(a.date).date()}_legs.csv"
+        if os.path.exists(lp):
+            a.leagues = sorted(set(pd.read_csv(lp)["league"]) - _data.EURO_CODES) or a.leagues
     cfg = ModelConfig(xi=a.xi, alpha=a.alpha, train_days=a.train_days, xg_weight=a.xg_weight)
     leagues = a.leagues
     paths = []
     for d in a.data:
         paths += sorted(glob.glob(os.path.join(d, "**", "*.csv"), recursive=True)) if os.path.isdir(d) else [d]
+    own = {"watchlist.csv", "review_log.csv"}     # files this tool writes into the data dir
     paths = [p for p in paths if "fixtures_" not in p and "goals_" not in p
-             and f"{os.sep}xg{os.sep}" not in p]
+             and f"{os.sep}xg{os.sep}" not in p and f"{os.sep}fixtures{os.sep}" not in p
+             and os.path.basename(p) not in own]
     if a.cmd == "xg":
         return _cmd_xg(a, paths)
     xg_path = None if a.no_xg else a.xg
@@ -122,6 +131,21 @@ def main(argv=None):
 
     if a.cmd == "scan":
         return _cmd_scan(a, matches, cfg)
+    if a.cmd == "review":
+        from .review import review
+        date = pd.Timestamp(a.date)
+        legs_path = a.legs or f"scan_{date.date()}_legs.csv"
+        if not os.path.exists(legs_path):
+            print(f"No scan found at {legs_path}: review needs the scan made before kick-off.")
+            return
+        d = next((x for x in a.data if os.path.isdir(x)), "data")
+        rep = review(date, pd.read_csv(legs_path, dtype={"key": str}), matches, d)
+        out = f"review_{date.date()}.md"
+        with open(out, "w") as f:
+            f.write(rep + "\n")
+        print(rep)
+        print(f"\nSaved {out}")
+        return
     if a.cmd == "watch":
         from .watch import grade
         d = next((x for x in a.data if os.path.isdir(x)), "data")

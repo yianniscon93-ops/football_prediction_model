@@ -104,6 +104,9 @@ light theme, by league, shortlist + watch list + per-match cards with market-led
 fair odds 1.19–1.60 and Min odds; publish it as an artifact) plus .md/.csv. Yiannis picks
 the bets himself and checks Stoiximan prices against Min odds. A slip from a screenshot
 still works via `predict`.
+**Next morning:** `fetch --no-history` then `review --date ...` → review_<date>.md (what
+happened vs the scan; appends to data/review_log.csv). Don't retune on one matchday: the
+tuning verdict needs 300+ live games.
 
 ## Next tasks (priority order)
 1. CLV tracking: store each scan's fair prices, compare with closing prices.
