@@ -157,8 +157,9 @@ def build_features(matches: pd.DataFrame, managers: dict | None = None,
                 elo=T.elo, euro=euro_recent,
             )
 
-        for side, oside, is_home, tname, oname, goals in (
-                ("h", "a", 1, r.home, r.away, r.hg), ("a", "h", 0, r.away, r.home, r.ag)):
+        for side, oside, is_home, tname, oname, goals, xg_for in (
+                ("h", "a", 1, r.home, r.away, r.hg, r.home_xg),
+                ("a", "h", 0, r.away, r.home, r.ag, r.away_xg)):
             f, o = side_feats[side], side_feats[oside]
             elo_diff = 0.0
             if f["elo"] is not None and o["elo"] is not None:
@@ -166,6 +167,7 @@ def build_features(matches: pd.DataFrame, managers: dict | None = None,
             rows.append({
                 "match_id": r.match_id, "date": d, "league": lg, "season": se,
                 "team": tname, "opp": oname, "is_home": is_home, "goals": goals,
+                "xg_for": xg_for,   # real xG (NaN if none) - optional training target
                 "att_xg_form": f["xg_form_att"], "opp_def_xg_form": o["xg_form_def"],
                 "streak": f["streak"], "opp_streak": o["streak"],
                 "promoted": f["promoted"], "opp_promoted": o["promoted"],

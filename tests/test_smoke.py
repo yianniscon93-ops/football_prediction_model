@@ -7,7 +7,7 @@ from footy_prediction_model import FootyModel, build_features, score_slip
 from footy_prediction_model.markets import devig, market_probs, parse_selection
 
 
-def _synthetic(seed=0, seasons=3):
+def _synthetic(seed=0, seasons=3, keep_rates=False):
     rng = np.random.default_rng(seed)
     teams = [f"T{i}" for i in range(12)]
     att = dict(zip(teams, rng.normal(0, 0.3, 12)))
@@ -21,10 +21,13 @@ def _synthetic(seed=0, seasons=3):
                 la = np.exp(0.15 + att[a] - dfn[h])
                 hg, ag = rng.poisson(lh), rng.poisson(la)
                 recs.append(dict(league="ZZ", date=d, home=h, away=a, hg=hg, ag=ag,
-                                 hs=hg * 4 + 6, as_=ag * 4 + 5, hst=hg * 2 + 2, ast=ag * 2 + 2))
+                                 hs=hg * 4 + 6, as_=ag * 4 + 5, hst=hg * 2 + 2, ast=ag * 2 + 2,
+                                 _lh=lh, _la=la))
             d += pd.Timedelta(days=7)
         d += pd.Timedelta(days=60)
     m = pd.DataFrame(recs)
+    if not keep_rates:
+        m = m.drop(columns=["_lh", "_la"])
     for c in ("home_elo", "away_elo", "odds_h", "odds_d", "odds_a", "odds_o25", "odds_u25",
               "home_xg", "away_xg"):
         m[c] = np.nan

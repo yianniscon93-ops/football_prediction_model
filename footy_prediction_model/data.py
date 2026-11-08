@@ -6,7 +6,7 @@
 2. xgabora "Club-Football-Match-Data-2000-2025" Matches.csv (includes ClubElo).
 
 Optional extras:
-  - xG CSV:       date,home,away,home_xg,away_xg   (e.g. exported from Understat/FBref)
+  - xG CSV:       date,[league,]home,away,home_xg,away_xg   (see xg.py: FotMob/Opta)
   - managers CSV: team,date                        (date the new manager took over)
 """
 from __future__ import annotations
@@ -224,6 +224,30 @@ def harmonize_names(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return df, allmap
 
 
+def unify_spellings(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """One club, one name: names equal once case/punctuation are dropped
+    ("Nottm Forest" / "Nott'm Forest", "MGladbach" / "M'gladbach" in the xgabora
+    history) are merged into the most recent spelling, so ratings and form aren't
+    split across two "teams"."""
+    long = pd.concat([df[["home", "date"]].rename(columns={"home": "t"}),
+                      df[["away", "date"]].rename(columns={"away": "t"})])
+    last = long.groupby("t")["date"].max()
+    key = {n: re.sub(r"[^a-z0-9]", "", n.lower()) for n in last.index}
+    groups: dict[str, list[str]] = {}
+    for n, k in key.items():
+        groups.setdefault(k, []).append(n)
+    mapping = {}
+    for names in groups.values():
+        if len(names) > 1:
+            keep = max(names, key=lambda n: last[n])
+            mapping.update({n: keep for n in names if n != keep})
+    if mapping:
+        df = df.copy()
+        df["home"] = df["home"].replace(mapping)
+        df["away"] = df["away"].replace(mapping)
+    return df, mapping
+
+
 def load_matches(paths: list[str], leagues: list[str] | None = None,
                  since: str | None = "2015-07-01", xg_path: str | None = None,
                  include_europe: bool = True, verbose: bool = False) -> pd.DataFrame:
@@ -242,17 +266,23 @@ def load_matches(paths: list[str], leagues: list[str] | None = None,
         df = df[df["date"] >= pd.Timestamp(since)]
     df = df.drop_duplicates(subset=["league", "date", "home", "away"], keep="last")
     df, mapping = harmonize_names(df)
+    df, spell = unify_spellings(df)
+    mapping.update(spell)
     if verbose and mapping:
         print("Team names mapped:", ", ".join(f"{a}->{b}" for a, b in sorted(mapping.items())))
     df = df.drop(columns=["_src"])
     if xg_path:
         xg = pd.read_csv(xg_path, parse_dates=["date"])
+        keys = ["league", "date", "home", "away"] if "league" in xg.columns else ["date", "home", "away"]
+        xg = xg.drop_duplicates(subset=keys, keep="last")
         df = df.drop(columns=["home_xg", "away_xg"]).merge(
-            xg[["date", "home", "away", "home_xg", "away_xg"]], on=["date", "home", "away"], how="left")
+            xg[keys + ["home_xg", "away_xg"]], on=keys, how="left")
     df = df.sort_values(["date", "league", "home"]).reset_index(drop=True)
     df["season"] = season_of(df["date"])
     df["match_id"] = np.arange(len(df))
-    return df[["match_id", "season"] + STD_COLS]
+    out = df[["match_id", "season"] + STD_COLS].copy()
+    out.attrs["name_map"] = mapping   # open-matchday -> reference names (used by scan)
+    return out
 
 
 def load_managers(path: str | None) -> dict[str, list[pd.Timestamp]]:

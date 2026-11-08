@@ -1,41 +1,73 @@
 # footy_prediction_model
 
 The v3 Protocol as a statistical model. Every gate is a feature with a **learned
-weight** in a time-decayed Poisson / Dixon-Coles goals model. It prices every market
-(1X2, double chance, O/U, BTTS, team to score) from one scoreline matrix, then
-compares each Stoiximan leg against the de-margined bookmaker price.
+weight** in a time-decayed Poisson / Dixon-Coles goals model, trained on a blend of
+real xG and goals. It prices every market (1X2, double chance, O/U, BTTS, team to
+score) from one scoreline matrix, then compares each leg against the sharp
+(Betfair Exchange) price.
 
 ```
-log(xG_team) = league + home_adv + attack[team] − defence[opp]       (Gate 1 ratings)
-             + β·xG-form + β·results-streak + β·promoted             (Gate 1 form)
-             + β·H2H residual                                         (Gate 2)
-             + β·rest days + prior·injuries/GK/Europe midweek         (Gate 3)
-             + β·table stakes + β·dead rubber + β·new manager         (Gate 4)
-             + β·Elo difference                                       (Gate 5)
-past matches weighted by exp(−ξ · days_ago)   ← the "form weight", tuned by backtest
+target   = 0.7·xG + 0.3·goals   (where real xG exists, goals elsewhere)
+log(λ_team) = league + home_adv + attack[team] − defence[opp]       (Gate 1 ratings)
+            + β·xG-form + β·results-streak + β·promoted             (Gate 1 form)
+            + β·H2H residual                                         (Gate 2)
+            + β·rest days + prior·injuries/GK/Europe midweek         (Gate 3)
+            + β·table stakes + β·dead rubber + β·new manager         (Gate 4)
+            + β·Elo difference                                       (Gate 5)
+past matches weighted by exp(−ξ · days_ago), ξ = 0.002/day (half-life ~350 days)
 ```
 
 ## Quick start
 
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+PY=.venv/bin/python
 
 # 1. data: history (2000-Sep 2026, odds + ClubElo) + current season (refreshed daily)
-python -m footy_prediction_model fetch --dest data --leagues E0 SP1 I1 D1 F1 G1 CY1
+$PY -m footy_prediction_model fetch --dest data --leagues E0 SP1 I1 D1 F1 G1 CY1
 
-# 2. score a slip
-python -m footy_prediction_model predict --data data --leagues E0 SP1 I1 D1 F1 G1 CY1 \
+# 2. real xG (FotMob/Opta) -> data/xg/xg.csv; cached, so re-runs only fetch new matches
+$PY -m footy_prediction_model xg --data data --leagues E0 SP1 I1 D1 F1 G1 CY1
+
+# 3a. scan a matchday: every fixture, every market -> legs + parlays (no slip needed)
+$PY -m footy_prediction_model scan --data data --leagues E0 SP1 I1 D1 F1 G1 CY1 [--date 2026-11-08]
+
+# 3b. or score a slip you already have
+$PY -m footy_prediction_model predict --data data --leagues E0 SP1 I1 D1 F1 G1 CY1 \
     --slip examples/slip_2026-11-07.csv --out slip_report.md
 
-# research commands
-python -m footy_prediction_model backtest  --data data/history/Matches.csv --start 2024-08-01 --end 2026-06-30
-python -m footy_prediction_model edge-test --data data/history/Matches.csv     # gates vs market
-python -m footy_prediction_model tune      --data data/history/Matches.csv --start 2024-08-01 --end 2025-06-30
-python -m footy_prediction_model coefs     --data data                          # learned gate weights
-python -m footy_prediction_model teams     --data data --league E0              # exact team names
+# research
+$PY -m footy_prediction_model backtest  --data data/history/Matches.csv --xg data/xg/xg.csv --start 2024-08-01 --end 2026-06-30
+$PY -m footy_prediction_model edge-test --data data/history/Matches.csv --xg data/xg/xg.csv
+$PY -m footy_prediction_model coefs     --data data
+$PY -m footy_prediction_model teams     --data data --league E0
+$PY -m pytest tests -q
 ```
 
-## Slip CSV
+`--data <dir>` picks up `<dir>/xg/xg.csv` automatically; `--no-xg` switches it off,
+`--xg-weight 0` trains on goals only.
+
+## Scan output (`scan_<date>.md`)
+
+1. **Most likely scenario** per fixture: model xG, top 3 scorelines, 1/X/2, O2.5 and
+   BTTS (model, with the fair price in brackets).
+2. **Best leg per fixture**: the most likely leg with fair odds 1.19–1.43
+   (`--min-fair-odds`, `--max-fair-odds`) that passes v3.1. **Min odds** = fair odds
+   less a 5% margin: don't take the leg on Stoiximan below it.
+3. **Model disagrees, check team news**: legs where the model is 5+ points below the
+   fair price. An alert, not a veto (see backtest below).
+4. **Parlays**: disjoint (each fixture on one ticket), 6–7 legs, safest first:
+   Conservative, Balanced 1..n, Aggressive. Odds range, P(all hit) and weakest link.
+5. **Excluded fixtures** with reasons, plus notes (thin data, unmatched names, stale data).
+
+Prices come from football-data.co.uk `fixtures.csv` (refreshed before each round):
+Betfair Exchange with the margin removed is the "fair" price, falling back to the
+market average where the exchange is missing or stale. O1.5, U3.5, BTTS and team to
+score are priced from the expected goals those fair prices imply. Stoiximan can't be
+read automatically (bot protection), hence the Min odds column. Leagues not in that
+file (CY1, UCL/UEL/UECL) come from open-matchday fixtures: model only, kept out of parlays.
+
+## Slip CSV (`predict`)
 
 Required: `league,date,home,away,selection,odds`
 
@@ -46,79 +78,93 @@ Required: `league,date,home,away,selection,odds`
   0–1 of attacking output missing), `home_absence_def`, `away_absence_def`,
   `home_gk_out`, `away_gk_out`, `home_euro_midweek`, `away_euro_midweek`.
   Euro midweek is also detected automatically from UCL/UEL/UECL results.
-- **Market-anchored mode, optional:** `odds_1,odds_x,odds_2,odds_o25,odds_u25` (that
-  fixture's full prices). This adds an "Anchored" column: the market's own probability
-  adjusted only by the gates that proved to add information beyond the price.
+- **Market-anchored mode, optional:** `odds_1,odds_x,odds_2,odds_o25,odds_u25`.
 
 Team names follow football-data.co.uk spelling (`Man City`, `Nott'm Forest`,
-`Ath Madrid`, `Espanol`, `La Coruna`). Use `teams` to list them. The loader maps
-other spellings automatically, and you can fix any mistakes with `--aliases aliases.csv`
-(`source,target`).
+`Ath Madrid`, `Espanol`). Use `teams` to list them; fix mistakes with `--aliases aliases.csv`.
 
 ## Data sources
 
 | What | Source | Notes |
 |---|---|---|
 | History 2000 to Sep 2026 | github.com/xgabora/Club-Football-Match-Data-2000-2025 | results, shots, SoT, average odds, ClubElo |
-| Current season | github.com/oladeeayo/open-matchday | refreshed daily: results, shots, SoT for 75 competitions incl. Cyprus, Greece, UCL/UEL/UECL. Non-commercial use with attribution |
-| Any extra season | football-data.co.uk CSVs | drop them into `--data`; auto-detected |
-| Real xG (optional) | Understat/FBref export | `--xg file.csv` with `date,home,away,home_xg,away_xg`. Otherwise a shots-based proxy is used |
-| Manager changes | your CSV `team,date` | `--managers`. Feeds the new-manager feature |
+| Current season | github.com/oladeeayo/open-matchday | daily results + fixtures, 75 comps incl. CY1, G1, UCL/UEL/UECL. Non-commercial, with attribution |
+| Real xG | FotMob (Opta xG), `xg` command | top 5 from 2020/21, G1 from 2025/26, UCL/UEL/UECL; **none for CY1**. Unofficial endpoint: personal use, low request rate, don't republish |
+| Pre-match prices | football-data.co.uk `fixtures.csv` | Betfair Exchange, Bet365, average, max: 1X2 + O/U 2.5 |
+| Manager changes | your CSV `team,date` | `--managers` |
 
-## What the backtest says (v0.1, honest)
+Understat has served a maintenance page since at least Nov 2026, and FBref lost Opta
+stats in Jan 2026, hence FotMob. Team identity is learned by fixture overlap (same
+league, date ±1 day, same score), so no hand-kept name table is needed.
 
-Rolling weekly refits, top 5 leagues, 2024/25 and 2025/26 seasons: 3,487 matches, no leakage.
+## What the backtest says (v0.2, 8 Nov 2026)
 
-| | Model | Market (de-margined) |
+Rolling weekly refits, top 5 leagues, 2024/25 + 2025/26: 3,491 matches, no leakage.
+Settings chosen on 2024/25 only; 2025/26 is the held-out check.
+
+| | Goals-only (v0.1*) | **xG model (v0.2)** | Market |
+|---|---|---|---|
+| 1X2 log-loss 2024-26 | 0.9893 | **0.9863** | 0.9708 |
+| O/U 2.5 log-loss 2024-26 | 0.6807 | **0.6772** | 0.6725 |
+| O/U 2.5, held-out 2025/26 | 0.6855 | **0.6814** (z −2.2) | 0.6764 |
+
+\* v0.1 re-run with the team-name fix below.
+
+- **xG as the training target is what helps.** Weight 0.7 is best (0.5–1.0 all
+  similar). It closes about half the O/U gap to the market. 1X2 gains are small
+  (held out: −0.0012, z −0.6).
+- **xG as a form feature adds nothing** over the shots proxy.
+- **Still behind the market.** The 50/50 model-market blend (0.9761) is worse than the
+  market alone, and value bets ROI is −10%.
+- **Calibration:** good up to 70%. Above that the model is under-confident on
+  favourites (predicted 75%, actual 80%).
+
+**Can the model spot the risky short leg?** Legs at fair 1.19–1.43, by model edge:
+
+| Model vs fair | Legs | Hit |
 |---|---|---|
-| 1X2 log-loss | 0.990 | **0.971** |
-| O/U 2.5 log-loss | 0.681 | **0.672** |
-| Calibration | good (within ±2% in every bin up to 80%) | — |
-| Value bets EV > 5% | ROI −10% | — |
+| ≤ −10 pts | 209 | 79% |
+| −10 to −5 | 649 | 75% |
+| −5 to +5 | 1,527 | 77–78% |
+| > +5 | 56 | 57% |
 
-**Safe legs** (odds about 1.15–1.40, the parlay use case): 2,756 legs, 77.6% hit.
-By model flag: 🟢 76.6%, 🟡 78.8%, 🟠 76.7%, 🔴 79.2%. **The flags do not predict
-which safe legs fail.** A disagreement with the market means "check team news",
-not "drop the leg".
+No. When the model disagrees, the market is right. So scans use the fair price for
+every probability, and the model is a "check team news" alert. Real edges: Min odds
+(price shopping), line-ups, and parlay sizing.
 
-**Edge test: do the gates add anything beyond the price?** Market-anchored
-regression, trained 2016–24 and tested 2024–26:
+**Edge test with real xG** (market-anchored, trained 2016–24, tested 2024–26). These
+add information beyond the price: attacking xG form (+9% goals per unit, z 2.7),
+**opponent defensive xG form (+8%, z 2.4, new with real xG)**, results streak (−4%,
+z −2.8, the market over-reacts to runs), dead rubber (+6%, z 2.2), Elo (z −2.0).
+Out of sample the adjusted price still doesn't beat the market (1X2 0.9724 vs 0.9719).
 
-| Gate feature | Effect beyond price | Verdict |
-|---|---|---|
-| xG/shots attack form | +10% goals per unit, z=2.7 | market **under-reacts** to underlying form |
-| Results streak | −3.8% goals per unit, z=−2.6 | market **over-reacts** to win/loss runs |
-| Elo difference | small, z=−2.1 | marginal |
-| H2H | z=−0.2 | fully priced in, which confirms v3.1 |
-| Motivation, rest, promoted | \|z\| < 1.7 | priced in |
-
-Out of sample, applying these adjustments did not beat the market's log-loss
-(0.97189 vs 0.97190). The effects are real but small, and testing 18 features means
-one of them could be noise.
-
-**Takeaway for the City leg:** a losing streak is already over-priced by
-bookmakers. If anything, the edge is in trusting underlying shot/xG performance over
-results. City outshot Brighton 21–7 and still lost.
+**Fixed in v0.2:** the history file spelled two clubs two ways ("Nottm Forest" until
+mid-2024, then "Nott'm Forest"; "MGladbach"/"M'gladbach"), splitting each into two
+teams. The loader now merges names that only differ by punctuation/case.
 
 ## Roadmap
 
-1. Real xG (Understat) in place of the shot proxy, since xG form was the gate with signal.
-2. Lineup/injury data to learn the Gate 3 weights rather than using priors.
-3. Closing-line (Pinnacle) odds for a sharper benchmark.
-4. Correlated-leg handling for same-day parlays.
+1. Closing-line odds and CLV tracking: log each scan's prices, compare with kick-off prices.
+2. Lineup/injury data to learn the Gate 3 weights.
+3. Correlated-leg handling for same-day parlays (same league + kick-off).
+4. Prices for CY1 and European ties (The Odds API, free key).
+5. Fix favourite under-confidence (calibration layer or less shrinkage).
 
 ## Layout
 
 ```
 footy_prediction_model/
-  config.py    gates → features, priors, flag thresholds
-  data.py      loaders (football-data, xgabora, open-matchday) + team-name harmonisation
+  config.py    gates -> features, priors, flag thresholds, defaults (xi, xg_weight)
+  data.py      loaders (football-data, xgabora, open-matchday), name harmonisation
   fetch.py     downloads history + daily current-season data
+  xg.py        FotMob xG scraper (cached) + fixture-overlap team mapping
   features.py  leak-free chronological feature builder (all gates)
-  model.py     time-decayed Poisson GLM + Dixon-Coles rho
-  markets.py   scoreline matrix → markets, de-margining, flags
+  model.py     time-decayed Poisson GLM (xG/goals target) + Dixon-Coles rho
+  markets.py   scoreline matrix -> markets, de-margining, flags
   anchored.py  market-anchored model / edge test
   backtest.py  rolling-origin backtest, calibration, safe-leg test, tuning
+  scan.py      matchday scan: fixtures + fair prices -> legs -> disjoint parlays
   predict.py   slip scoring + report
   cli.py       commands
+tests/         leakage, score matrix, xG target, xG ingestion, parlay builder
 ```
