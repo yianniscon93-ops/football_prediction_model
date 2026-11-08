@@ -1,0 +1,11 @@
+# downloaded data (history ~45 MB; open-matchday is non-commercial, don't republish)
+data/
+# generated outputs (examples/ keeps the reference reports)
+/slip_report*.md
+/slip_report*.csv
+backtest_predictions.csv
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.DS_Store
