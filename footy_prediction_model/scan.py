@@ -20,7 +20,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from .config import FLAG_EMOJI, ModelConfig
+from .config import FEATURE_GROUPS, FLAG_EMOJI, ModelConfig
 from .data import EURO_CODES
 from .features import build_features
 from .markets import devig, market_probs
@@ -30,8 +30,8 @@ FD_FIXTURES_URL = "https://www.football-data.co.uk/fixtures.csv"
 UK_TO_CY = pd.Timedelta(hours=2)   # UK and Cyprus change clocks on the same days
 
 # (label shown, market key)
-LEG_MARKETS = [("1", "1"), ("2", "2"), ("1X", "1X"), ("X2", "X2"), ("12", "12"),
-               ("Over 1.5", "O1.5"), ("Over 2.5", "O2.5"), ("Under 2.5", "U2.5"),
+LEG_MARKETS = [("1", "1"), ("X", "X"), ("2", "2"), ("1X", "1X"), ("X2", "X2"), ("12", "12"),
+               ("Over 1.5", "O1.5"), ("Over 2.5", "O2.5"), ("Over 3.5", "O3.5"), ("Under 2.5", "U2.5"),
                ("Under 3.5", "U3.5"), ("Under 4.5", "U4.5"),
                ("BTTS Yes", "BTTS_Y"), ("BTTS No", "BTTS_N"),
                ("Home to score", "H_SCORE"), ("Away to score", "A_SCORE")]
@@ -213,6 +213,7 @@ def scan(matches: pd.DataFrame, fixtures: pd.DataFrame, cfg: ModelConfig | None 
         known = mid in pred.index and bool(pred.loc[mid, "known"])
         if not known:
             views.append({"kickoff": f["kickoff"], "league": f["league"], "fixture": name,
+                          "match_id": mid, "home": f["home"], "away": f["away"],
                           "note": "team(s) not in data"})
             continue
         r = pred.loc[mid]
@@ -236,6 +237,13 @@ def scan(matches: pd.DataFrame, fixtures: pd.DataFrame, cfg: ModelConfig | None 
             "f2": fair["2"] if fair else np.nan, "fo25": fair["O2.5"] if fair else np.nan,
             "price_src": src, "thin": thin,
             "ga10_h": ga10.get(f["home"], np.nan), "ga10_a": ga10.get(f["away"], np.nan),
+            # detail for the HTML match report
+            "match_id": mid, "home": f["home"], "away": f["away"], "M": M,
+            "model_P": PM, "fair_P": fair, "anch_P": PA,
+            "contrib": {g: (float(r[f"{g}_h"]), float(r[f"{g}_a"]))
+                        for g in ["ratings", *FEATURE_GROUPS, "G3_manual"]},
+            "feats": {side: rows[(rows["match_id"] == mid) & (rows["is_home"] == ih)].iloc[0].to_dict()
+                      for side, ih in (("h", 1), ("a", 0))},
         })
         for label, key in LEG_MARKETS:
             fp = fair[key] if fair else np.nan

@@ -87,3 +87,15 @@ def test_xg_weight_zero_matches_goals_only_model():
     a = FootyModel(ModelConfig(xg_weight=0.0)).fit(rows, ref)
     b = FootyModel(ModelConfig(xg_weight=0.0)).fit(rows.assign(xg_for=np.nan), ref)
     assert np.allclose(a.glm.coef_, b.glm.coef_)
+
+
+def test_strength_stretch_sharpens_favourites_and_keeps_total():
+    m, _ = _synthetic()
+    rows = build_features(m)
+    ref = m.date.max() + pd.Timedelta(days=1)
+    sub = rows[rows["date"] >= m.date.max() - pd.Timedelta(days=60)]
+    a = FootyModel(ModelConfig(strength_stretch=1.0)).fit(rows, ref).predict_matches(sub)
+    b = FootyModel(ModelConfig(strength_stretch=1.2)).fit(rows, ref).predict_matches(sub)
+    ra, rb = np.log(a.lam_h / a.lam_a), np.log(b.lam_h / b.lam_a)
+    assert np.allclose(rb, 1.2 * ra)                                   # gap stretched
+    assert np.allclose(a.lam_h * a.lam_a, b.lam_h * b.lam_a)          # geometric total kept

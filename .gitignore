@@ -5,6 +5,7 @@ data/
 /slip_report*.csv
 backtest_predictions.csv
 /scan_*.md
+/scan_*.html
 /scan_*_legs.csv
 __pycache__/
 *.pyc

@@ -83,7 +83,12 @@ floor: fair odds ≥ 1.19 (Stoiximan shows ~5% less).
 - Edge test with real xG: attacking AND defensive xG form (+, z 2.7 / 2.4), results
   streak (−, z −2.8), dead rubber, Elo add info beyond price, but out of sample the
   adjustments still don't beat the market.
-- Model is under-confident on favourites (predicted 75% → actual 80%).
+- Model is under-confident on favourites; fixed partly by strength_stretch=1.11
+  (held-out 1X2 0.9965 → 0.9955). Weaker ridge didn't help.
+- **Model-vs-market gaps work backwards** (held-out 25/26, fair odds 1.19–2.60): model
+  10+ pts above market → 38% won vs 49% implied (−26%). Never pick bets from model gaps.
+  Model 10+ pts BELOW market → 72% vs 63% (+9%), but 24/25 only broke even → tracked as
+  a no-stakes **watch list** (data/watchlist.csv, one bet per game; `watch` grades it).
 - Data: history = xgabora (to Sep 2026, odds + ClubElo); current = open-matchday
   (daily, incl. CY1, G1, UCL/UEL/UECL); xG = FotMob/Opta via `xg` command (top 5 from
   2020/21, G1 from 2025/26, Europe current season, none for CY1) → data/xg/ (gitignored,
@@ -94,15 +99,17 @@ floor: fair odds ≥ 1.19 (Stoiximan shows ~5% less).
 
 ## Matchday workflow
 "Scan today, leagues X" → `fetch --no-history` (fresh results), `xg` (new matches
-only), then `scan --date ... --leagues ...` → scan_<date>.md. Yiannis checks Stoiximan
-prices against **Min odds** for the chosen legs only. A slip from a screenshot still
-works via `predict`.
+only), then `scan --date ... --leagues ...` → **scan_<date>.html** (the deliverable:
+light theme, by league, shortlist + watch list + per-match cards with market-led bets in
+fair odds 1.19–1.60 and Min odds; publish it as an artifact) plus .md/.csv. Yiannis picks
+the bets himself and checks Stoiximan prices against Min odds. A slip from a screenshot
+still works via `predict`.
 
 ## Next tasks (priority order)
 1. CLV tracking: store each scan's fair prices, compare with closing prices.
 2. Lineup/injury data to learn Gate 3 weights.
 3. Correlated-leg handling for same-day parlays.
 4. Prices for CY1 + European ties (The Odds API free key) — currently model-only.
-5. Calibration fix for favourite under-confidence.
+5. Grade the watch list once ~200 games are settled; promote only if it beats Min odds.
 6. Daily xG GitHub Action: on hold. FotMob data is Opta's, so don't commit it to the
    public repo; if claude.ai chat needs it, use a private repo or a summary.

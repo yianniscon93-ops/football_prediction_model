@@ -157,6 +157,10 @@ class FootyModel:
         a = p[p.is_home == 0].set_index("match_id")
         j = h.join(a, lsuffix="_h", rsuffix="_a", how="inner")
         j["known"] = j["known_team_h"] & j["known_team_a"]
+        s = self.cfg.strength_stretch
+        if s != 1.0:
+            half = (s - 1) / 2 * np.log(j["lam_h"] / j["lam_a"])
+            j["lam_h"], j["lam_a"] = j["lam_h"] * np.exp(half), j["lam_a"] * np.exp(-half)
         return j
 
     def score_matrix(self, lh: float, la: float) -> np.ndarray:

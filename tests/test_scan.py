@@ -42,3 +42,21 @@ def test_verdict():
     assert _verdict(0.70, 0.81, 0.80, 1.25) == "YELLOW"    # anchored disagrees: not red
     assert _verdict(0.70, 0.70, 0.65, 1.54) == "YELLOW"    # >1.50 never green
     assert _verdict(0.80, np.nan, np.nan, np.nan) == "NODATA"
+
+
+def test_watch_settle_and_log(tmp_path):
+    from footy_prediction_model.watch import grade, log_watch, settle
+    assert settle("1", 2, 1) == 1 and settle("X2", 2, 1) == 0 and settle("12", 1, 1) == 0
+    assert settle("O2.5", 2, 1) == 1 and settle("U2.5", 2, 1) == 0 and settle("BTTS_Y", 2, 0) == 0
+    assert settle("A_SCORE", 0, 1) == 1 and np.isnan(settle("1", np.nan, 0))
+    w = pd.DataFrame({"date": pd.to_datetime(["2026-11-08"]), "league": ["E0"], "home": ["A"], "away": ["B"],
+                      "key": ["1"], "leg": ["1"], "fair_p": [0.6], "model_p": [0.45], "fair_odds": [1.67],
+                      "min_odds": [1.59], "logged": [pd.Timestamp("2026-11-08 12:00")]})
+    path = str(tmp_path / "w.csv")
+    log_watch(w, path)
+    log_watch(w.assign(fair_p=0.7, logged=pd.Timestamp("2026-11-08 15:00")), path)   # later re-scan
+    m = pd.DataFrame({"league": ["E0"], "date": pd.to_datetime(["2026-11-08"]), "home": ["A"], "away": ["B"],
+                      "hg": [2.0], "ag": [0.0]})
+    g, s = grade(path, m)
+    assert len(g) == 1 and g["fair_p"].iloc[0] == 0.6        # first (pre-match) price kept
+    assert s["n"] == 1 and s["won"] == 1.0 and abs(s["roi_min"] - 0.59) < 1e-9

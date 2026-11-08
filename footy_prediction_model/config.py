@@ -56,6 +56,10 @@ class ModelConfig:
     # xG is a less noisy measure of chance quality, so ratings settle faster.
     # 0.7 chosen on 2024/25, confirmed on held-out 2025/26 (O/U log-loss -0.004, z -2.2).
     xg_weight: float = 0.7
+    # Post-hoc stretch of the home/away strength gap (log lambda ratio x s, total kept).
+    # The fitted model is under-confident on favourites; s = 1.11 fitted on 2024/25,
+    # held-out 2025/26 1X2 log-loss 0.9965 -> 0.9955. 1.0 = off.
+    strength_stretch: float = 1.11
     manual_priors: dict = field(default_factory=lambda: dict(MANUAL_PRIORS))
 
 

@@ -48,7 +48,7 @@ def main(argv=None):
     fp.add_argument("--dest", default="data")
     fp.add_argument("--leagues", nargs="+", default=DEFAULT_LEAGUES)
     fp.add_argument("--no-history", action="store_true")
-    for name in ("backtest", "tune", "coefs", "predict", "teams", "edge-test", "xg", "scan"):
+    for name in ("backtest", "tune", "coefs", "predict", "teams", "edge-test", "xg", "scan", "watch"):
         sp = sub.add_parser(name)
         _common(sp)
         if name == "xg":
@@ -122,6 +122,18 @@ def main(argv=None):
 
     if a.cmd == "scan":
         return _cmd_scan(a, matches, cfg)
+    if a.cmd == "watch":
+        from .watch import grade
+        d = next((x for x in a.data if os.path.isdir(x)), "data")
+        w, sm = grade(os.path.join(d, "watchlist.csv"), matches)
+        if not sm["n"]:
+            print(f"No settled watch-list bets yet ({sm.get('pending', 0)} pending).")
+            return
+        print(w.loc[w["won"].notna(), ["date", "home", "away", "leg", "fair_odds", "model_p", "fair_p", "hg", "ag",
+                                       "won"]].to_string(index=False))
+        print(f"\nSettled {sm['n']} (pending {sm['pending']}): won {sm['won']:.0%} vs {sm['implied']:.0%} implied | "
+              f"return at min odds {sm['roi_min']:+.1%}, at fair odds {sm['roi_fair']:+.1%}")
+        return
 
     if a.cmd == "predict":
         slip = pd.read_csv(a.slip)
@@ -198,8 +210,18 @@ def _cmd_scan(a, matches, cfg):
     with open(out, "w") as f:
         f.write(rep + "\n")
     legs.to_csv(out.replace(".md", "_legs.csv"), index=False)
+    from .report import render_html
+    from .watch import grade, log_watch, select_watch
+    wpath = os.path.join(data_dir, "watchlist.csv")
+    watch = select_watch(legs, views, date)
+    if len(watch):
+        log_watch(watch, wpath)
+    _, wsum = grade(wpath, matches)
+    html_out = out.replace(".md", ".html")
+    with open(html_out, "w") as f:
+        f.write(render_html(views, matches, date, notes, legs=legs, watch=watch, watch_record=wsum))
     print(rep)
-    print(f"\nSaved {out} and {out.replace('.md', '_legs.csv')}")
+    print(f"\nSaved {out}, {html_out} and {out.replace('.md', '_legs.csv')}")
 
 
 def _cmd_xg(a, paths):
