@@ -12,4 +12,4 @@ from .predict import format_report, score_slip
 
 __all__ = ["ModelConfig", "FlagConfig", "load_matches", "build_features", "FootyModel",
            "score_slip", "format_report"]
-__version__ = "0.1.0"
+__version__ = "0.2.0"

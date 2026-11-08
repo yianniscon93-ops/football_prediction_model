@@ -60,34 +60,59 @@ dominant, most games decided by 1 goal or drawn.
 - **7 Nov 2026:** €10 14-fold @35.3, 13/14 hit. Lost on Nott'm Forest v Man City X2
   @1.22 (Forest 3-1; City's 3rd straight league loss, Maresca era; 115-charges guilty
   verdict leaked 25 Sep but City kept winning after it, so not the cause). Lessons:
-  (a) 14 legs at ~80% each ≈ 1–3% to land — cap parlays at 4–6 legs or split;
+  (a) 14 legs at ~80% each ≈ 1–3% to land — split into several 6–7 leg parlays;
   (b) model scored City X2 78% vs fair 77% — market had it right, it was the 1-in-5;
   (c) edge-test shows bookies OVER-react to results streaks and UNDER-react to
   underlying shots/xG form — weight underlying performance, not W/L runs.
 
-## Model state (v0.1, 7 Nov 2026)
-- Time-decayed Poisson GLM + Dixon-Coles; each gate = feature with learned β;
-  Gate 3 injuries/GK/Europe-midweek = fixed priors (no historical data).
-  Tuned: xi=0.001/day, alpha=3e-3.
-- Backtest 2024-26 (3,487 top-5 matches): well calibrated, but 1X2 log-loss 0.990 vs
-  market 0.971; value bets ROI −10%; flags do NOT separate winning from losing
-  1.15–1.40 legs (all ~77–79%). Flags = "model disagrees, check news", not "drop".
-- Edge test (market-anchored): beyond price only xG/shots form (+, z 2.7), results
-  streak (−, z −2.6), Elo (z −2.1) matter; H2H/motivation/rest are priced in.
-  Out-of-sample the adjustments didn't beat the market.
-- Data: history = github.com/xgabora/Club-Football-Match-Data-2000-2025 (to Sep 2026,
-  odds + ClubElo); current season = github.com/oladeeayo/open-matchday (daily,
-  75 comps incl. CY1, G1, UCL/UEL/UECL; non-commercial w/ attribution).
-  `python -m footy_prediction_model fetch --dest data`.
-- FBref lost Opta advanced stats (Jan 2026) — don't rely on it for xG.
+## Parlay sizing (8 Nov 2026, supersedes lesson (a) cap of 4–6)
+When many legs are playable, build several **disjoint** 6–7 leg parlays (each fixture on
+one ticket only), safest first: Conservative, Balanced 1..n, Aggressive. Default leg
+floor: fair odds ≥ 1.19 (Stoiximan shows ~5% less).
+
+## Model state (v0.2, 8 Nov 2026)
+- Time-decayed Poisson GLM + Dixon-Coles; target = 0.7·xG + 0.3·goals where real xG
+  exists. xi=0.002/day, alpha=3e-3. Gate 3 injuries/GK/Europe-midweek = fixed priors.
+- Backtest 2024-26 (3,491 top-5 matches), xG chosen on 24/25, held out 25/26:
+  1X2 log-loss 0.986 vs market 0.971; O/U 0.677 vs 0.673 (xG halved the O/U gap,
+  z −2.2 held out). Still behind the market; value bets ROI −10%.
+- Model disagreement does NOT predict which short legs lose: legs at fair 1.19–1.43
+  that the model rated 10+ pts riskier hit 79%. **Scans use the sharp fair price
+  (Betfair Exchange, de-margined) as the probability**; the model is a "check team
+  news" alert. Edges = Min odds (price shopping), line-ups, parlay sizing.
+- Edge test with real xG: attacking AND defensive xG form (+, z 2.7 / 2.4), results
+  streak (−, z −2.8), dead rubber, Elo add info beyond price, but out of sample the
+  adjustments still don't beat the market.
+- Model is under-confident on favourites; fixed partly by strength_stretch=1.11
+  (held-out 1X2 0.9965 → 0.9955). Weaker ridge didn't help.
+- **Model-vs-market gaps work backwards** (held-out 25/26, fair odds 1.19–2.60): model
+  10+ pts above market → 38% won vs 49% implied (−26%). Never pick bets from model gaps.
+  Model 10+ pts BELOW market → 72% vs 63% (+9%), but 24/25 only broke even → tracked as
+  a no-stakes **watch list** (data/watchlist.csv, one bet per game; `watch` grades it).
+- Data: history = xgabora (to Sep 2026, odds + ClubElo); current = open-matchday
+  (daily, incl. CY1, G1, UCL/UEL/UECL); xG = FotMob/Opta via `xg` command (top 5 from
+  2020/21, G1 from 2025/26, Europe current season, none for CY1) → data/xg/ (gitignored,
+  don't republish: Opta data); prices = football-data.co.uk fixtures.csv.
+- Understat is down (maintenance page since ≥ Nov 2026); FBref lost Opta stats (Jan 2026).
+- Stoiximan can't be read automatically (Cloudflare); don't try to bypass it.
+- Env: use `.venv/bin/python` (python.org Python here lacks sklearn and CA certs).
+
+## Matchday workflow
+"Scan today, leagues X" → `fetch --no-history` (fresh results), `xg` (new matches
+only), then `scan --date ... --leagues ...` → **scan_<date>.html** (the deliverable:
+light theme, by league, shortlist + watch list + per-match cards with market-led bets in
+fair odds 1.19–1.60 and Min odds; publish it as an artifact) plus .md/.csv. Yiannis picks
+the bets himself and checks Stoiximan prices against Min odds. A slip from a screenshot
+still works via `predict`.
+**Next morning:** `fetch --no-history` then `review --date ...` → review_<date>.md (what
+happened vs the scan; appends to data/review_log.csv). Don't retune on one matchday: the
+tuning verdict needs 300+ live games.
 
 ## Next tasks (priority order)
-1. **Real xG:** Understat scraper (top 5 leagues, 2014→now) → CSV
-   `date,home,away,home_xg,away_xg` (team names mapped to football-data spelling),
-   plus a daily GitHub Action committing it to this public repo so claude.ai chat can
-   read it. Feed via `--xg`. Re-run `backtest` and `edge-test` to see if xG form
-   beats the shot proxy.
-2. Pinnacle closing odds as benchmark; CLV tracking.
-3. Lineup/injury data to learn Gate 3 weights.
-4. Correlated-leg handling for same-day parlays; leg-count cap in report.
-5. Greek/Cypriot leagues: thin data (CY1 only 2026/27) — keep low-confidence warnings.
+1. CLV tracking: store each scan's fair prices, compare with closing prices.
+2. Lineup/injury data to learn Gate 3 weights.
+3. Correlated-leg handling for same-day parlays.
+4. Prices for CY1 + European ties (The Odds API free key) — currently model-only.
+5. Grade the watch list once ~200 games are settled; promote only if it beats Min odds.
+6. Daily xG GitHub Action: on hold. FotMob data is Opta's, so don't commit it to the
+   public repo; if claude.ai chat needs it, use a private repo or a summary.

@@ -47,11 +47,19 @@ DEFAULT_LEAGUES = ["E0", "SP1", "I1", "D1", "F1"]
 
 @dataclass
 class ModelConfig:
-    xi: float = 0.001             # time decay per day (half-life ~ 690 days; tuned on 2024/25)
+    xi: float = 0.002             # time decay per day (half-life ~ 350 days; tuned on 2024/25 with xG)
     alpha: float = 3e-3           # L2 (ridge) strength in sklearn's scale (tuned)
     train_days: int = 3 * 365     # training window
     max_goals: int = 10
     use_team_ratings: bool = True  # False = cross-league mode (Elo-driven)
+    # Training target = (1-w)*goals + w*xG on matches with real xG (goals elsewhere).
+    # xG is a less noisy measure of chance quality, so ratings settle faster.
+    # 0.7 chosen on 2024/25, confirmed on held-out 2025/26 (O/U log-loss -0.004, z -2.2).
+    xg_weight: float = 0.7
+    # Post-hoc stretch of the home/away strength gap (log lambda ratio x s, total kept).
+    # The fitted model is under-confident on favourites; s = 1.11 fitted on 2024/25,
+    # held-out 2025/26 1X2 log-loss 0.9965 -> 0.9955. 1.0 = off.
+    strength_stretch: float = 1.11
     manual_priors: dict = field(default_factory=lambda: dict(MANUAL_PRIORS))
 
 

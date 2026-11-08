@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import re
-import urllib.request
 
 OM_BASE = "https://raw.githubusercontent.com/oladeeayo/open-matchday/master/data"
 HIST_URL = ("https://raw.githubusercontent.com/xgabora/Club-Football-Match-Data-2000-2025/"
@@ -43,9 +42,12 @@ def league_code_from_path(path: str) -> str:
 
 
 def _get(url: str, dest: str) -> str:
+    import requests  # bundles CA certs (python.org macOS builds have none for urllib)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    with urllib.request.urlopen(url, timeout=120) as r, open(dest, "wb") as f:
-        f.write(r.read())
+    r = requests.get(url, timeout=120)
+    r.raise_for_status()
+    with open(dest, "wb") as f:
+        f.write(r.content)
     return dest
 
 

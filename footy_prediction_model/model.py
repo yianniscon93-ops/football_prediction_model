@@ -76,7 +76,7 @@ class FootyModel:
         age = (ref_date - tr["date"]).dt.days.to_numpy()
         w = np.exp(-self.cfg.xi * age)
         off = self._manual_offset(tr)
-        y = tr["goals"].to_numpy(float)
+        y = self._target(tr, w)
         # sklearn has no offset arg; manual features are 0 in history anyway.
         self.glm = PoissonRegressor(alpha=self.cfg.alpha, max_iter=3000, tol=1e-6)
         with warnings.catch_warnings():
@@ -85,6 +85,23 @@ class FootyModel:
         self.ref_date_ = ref_date
         self._fit_rho(tr, X, w, off)
         return self
+
+    def _target(self, tr, w):
+        """Goals, or a goals/xG blend where real xG exists. xG is rescaled so its
+        weighted total matches goals (Opta xG excludes own goals), keeping lambda on
+        the goals scale that the score matrix and rho need."""
+        y = tr["goals"].to_numpy(float)
+        self.xg_scale_, self.xg_share_ = 1.0, 0.0
+        wt = self.cfg.xg_weight
+        if wt <= 0 or "xg_for" not in tr.columns:
+            return y
+        xg = tr["xg_for"].to_numpy(float)
+        has = np.isfinite(xg)
+        if not has.any():
+            return y
+        self.xg_scale_ = float(np.sum(w[has] * y[has]) / np.sum(w[has] * xg[has]))
+        self.xg_share_ = float(has.mean())
+        return np.where(has, (1 - wt) * y + wt * self.xg_scale_ * np.nan_to_num(xg), y)
 
     def _manual_offset(self, rows):
         pri = self.cfg.manual_priors
@@ -140,6 +157,10 @@ class FootyModel:
         a = p[p.is_home == 0].set_index("match_id")
         j = h.join(a, lsuffix="_h", rsuffix="_a", how="inner")
         j["known"] = j["known_team_h"] & j["known_team_a"]
+        s = self.cfg.strength_stretch
+        if s != 1.0:
+            half = (s - 1) / 2 * np.log(j["lam_h"] / j["lam_a"])
+            j["lam_h"], j["lam_a"] = j["lam_h"] * np.exp(half), j["lam_a"] * np.exp(-half)
         return j
 
     def score_matrix(self, lh: float, la: float) -> np.ndarray:
